@@ -1,7 +1,7 @@
 (function($)
 {
     var scrollElement = 'html, body';
-    var active_input = '';
+    var activeInput = '';
 
     // Settings
     var COMMENT_SCROLL_TOP_OFFSET = 40;
@@ -20,17 +20,25 @@
             commentform.submit(onCommentFormSubmit);
         }
 
+        // Bind event for show comments
+        $('body').on('click', '.open-comments', function() {
+            var $a = $(this);
+            var comment_id = $a.attr('data-comment-id');
 
-        // Bind events for threaded comment reply
-        if($.fn.on) {
-            // jQuery 1.7+
-            $('body').on('click', '.comment-reply-link', showThreadedReplyForm);
-        }
-        else {
-            $('.comment-reply-link').live('click', showThreadedReplyForm);
-        }
+            toggleComments(comment_id);
+        });
 
-        $('.comment-cancel-reply-link').click(cancelThreadedReplyForm);
+        // Bind event for confirm delete comment
+        $('body').on("click", ".delete-comments", function(e) {
+            var link = $(this).attr("href");
+            e.preventDefault();    
+            bootbox.confirm("Are you sure you want to delete this content?", function(result) {    
+                if (result) {
+                    document.location.href = link;     
+                }    
+            });
+
+        });
 
         var $all_forms = $('.js-comments-form');
         $all_forms
@@ -87,28 +95,24 @@
             if( ! isNaN(id))   // e.g. #comments in URL
                 scrollToComment(id, 1000);
         }
-    });
 
+    });
 
     function setActiveInput()
     {
-        active_input = this.name;
+        activeInput = this.name;
     }
-
 
     function onCommentFormSubmit(event)
     {
         event.preventDefault();  // only after ajax call worked.
         var form = event.target;
-        var preview = (active_input == 'preview');
 
         ajaxComment(form, {
-            onsuccess: (preview ? null : onCommentPosted),
-            preview: preview
+            onsuccess: onCommentPosted
         });
         return false;
     }
-
 
     function scrollToComment(id, speed)
     {        
@@ -126,6 +130,12 @@
         if( window.on_scroll_to_comment && window.on_scroll_to_comment({comment: $comment}) === false )
             return;
 
+        // Display parent comments list if exist.
+        var parent_comment_id = $comment.parent().parent().parent().children('.comment-item').attr('id').slice(1);
+        if(parent_comment_id) {
+            toggleComments(parent_comment_id);
+        }
+
         // Scroll to the comment.
         scrollToElement( $comment, speed, COMMENT_SCROLL_TOP_OFFSET );
     }
@@ -142,63 +152,48 @@
     }
 
 
-    function onCommentPosted( comment_id, object_id, is_moderated, $comment )
+    function onCommentPosted(comment_id, object_id, is_moderated, $comment, parent_id)
     {
-        var $message_span;
-        if( is_moderated )
-            $message_span = $("#comment-moderated-message-" + object_id).fadeIn(200);
-        else
-            $message_span = $("#comment-added-message-" + object_id).fadeIn(200);
+        $('.no-comment').hide();
 
-        setTimeout(function(){ scrollToComment(comment_id, 1000); }, 1000);
-        setTimeout(function(){ $message_span.fadeOut(500) }, 4000);
+        if(parent_id) return;
+        $('.add-feedback-success').find('.comment-link').attr('href', '#c'+comment_id);
+        $('.add-feedback-form').hide();
+        $('.add-feedback-success').show();
     }
 
-
-    function showThreadedReplyForm(event) {
-        event.preventDefault();
-
-        var $a = $(this);
-        var comment_id = $a.attr('data-comment-id');
+    function toggleComments(comment_id) {
+        var $a = $("[data-comment-id=" + comment_id + "]");
         var $comment = $a.closest('.comment-wrapper');
+        var $commentList = $comment.children('.comment-list-wrapper');
 
-        removeThreadedPreview();
-        $('.js-comments-form').appendTo($comment);
-        $($comment.find('#id_parent')[0]).val(comment_id);
-    }
+        if($commentList.is(":visible")) {
+            $commentList.find('.inline-comment-form').remove();
+        } else {
+            if(!$commentList.length) {
+                $comment.append('<ul class="comment-list-wrapper"></ul>');
+                $commentList = $comment.children('.comment-list-wrapper');
+            }
 
+            var $form = $('.inline-comment-form');
+            var $commentForm = $('#feedback-form').clone();
+            $commentForm.find(':input').focus(setActiveInput).mousedown(setActiveInput);
+            $commentForm.submit(onCommentFormSubmit);
+            $commentForm.find('textarea').attr('placeholder','Add a comment...');
+            $commentForm.removeClass('hide');
+            autosize($commentForm.find('textarea'));
 
-    function cancelThreadedReplyForm(event) {
-        if(event)
-            event.preventDefault();
+            $commentList.append($commentForm);
+            $($comment.find('#id_parent')[0]).val(comment_id);
+        }
 
-        var $form = $(event.target).closest('form.js-comments-form');
-        resetForm($form);
-        removeThreadedPreview();
-    }
+        $commentList.toggle();
 
-    function removeThreadedPreview() {
-        // And remove the preview (everywhere! on all comments)
-        var $previewLi = $('li.comment-preview');
-        if($previewLi.length == 0)
-            return false;
-
-        var $ul = $previewLi.parent();
-        if($ul.children('li').length == 1)
-            $ul.remove();  // the preview was the only node.
-        else
-            $previewLi.remove();
-
-        return true
     }
 
     function resetForm($form) {
-        var object_id = parseInt($form.attr('data-object-id'));
         $($form[0].elements['comment']).val('');  // Wrapped in jQuery to silence errors for missing elements.
-        $($form[0].elements['parent']).val('');   // Reset parent field in case threaded comments are used.
-        $form.appendTo($('#comments-form-orig-position-' + object_id));
     }
-
 
     /*
       Based on django-ajaxcomments, BSD licensed.
@@ -206,12 +201,9 @@
 
       Updated to be more generic, more fancy, and usable with different templates.
      */
-    var previewAutoAdded = false;
-
     function ajaxComment(form, args)
     {
         var onsuccess = args.onsuccess;
-        var preview = !!args.preview;
 
         if (form.commentBusy) {
             return false;
@@ -219,13 +211,11 @@
 
         form.commentBusy = true;
         var $form = $(form);
-        var comment = $form.serialize() + (preview ? '&preview=1' : '');
+        var comment = $form.serialize();
         var url = $form.attr('action') || './';
         var ajaxurl = $form.attr('data-ajax-action');
 
-        // Add a wait animation
-        if( ! preview )
-            $('#comment-waiting').fadeIn(1000);
+        $form.find('.submit-form').text('Posting...');
 
         // Use AJAX to post the comment.
         $.ajax({
@@ -240,13 +230,10 @@
 
                 if (data.success) {
                     var $added;
-                    if( preview )
-                        $added = commentPreview(data);
-                    else
-                        $added = commentSuccess($form, data);
+                    $added = commentSuccess($form, data);
 
-                    if( onsuccess )
-                        args.onsuccess(data.comment_id, data.object_id, data.is_moderated, $added);
+                    if(onsuccess)
+                        args.onsuccess(data.comment_id, data.object_id, data.is_moderated, $added, data.parent_id);
                 }
                 else {
                     commentFailure(data);
@@ -269,16 +256,8 @@
         // Clean form
         resetForm($form);
 
-        // Show comment
-        var had_preview = removePreview(data);
+        // Add comment
         var $new_comment = addComment(data);
-
-        if( had_preview )
-            // Avoid double jump when preview was removed. Instead refade to final comment.
-            $new_comment.hide().fadeIn(600);
-        else
-            // Smooth introduction to the new comment.
-            $new_comment.hide().show(600);
 
         return $new_comment;
     }
@@ -286,12 +265,12 @@
     function addComment(data)
     {
         // data contains the server-side response.
-        var $newCommentTarget = addCommentWrapper(data, '')
+        var $newCommentTarget = addCommentWrapper(data)
         $newCommentTarget.append(data['html']).removeClass('empty');
         return $("#c" + parseInt(data.comment_id));
     }
 
-    function addCommentWrapper(data, for_preview)
+    function addCommentWrapper(data)
     {
         var parent_id = data['parent_id'];
         var object_id = data['object_id'];
@@ -308,8 +287,10 @@
             // Each top-level of django-threadedcomments starts in a new <ul>
             // when you use the comment.open / comment.close logic as prescribed.
             var $commentUl = $parent.children('ul');
+
             if( $commentUl.length == 0 ) {
                 var $form = $parent.children('.js-comments-form');
+
                 if($form.length > 0) {
                     // Make sure to insert the <ul> before the comment form.
                     $form.before('<ul class="comment-list-wrapper"></ul>')
@@ -321,56 +302,36 @@
                 }
             }
 
-            if(for_preview) {
-              // Reuse existing one if found. This is used for the preview.
-              var $previewLi = $commentUl.find('li.comment-preview');
-              if($previewLi.length == 0) {
-                  $commentUl.append('<li class="comment-wrapper comment-preview"></li>');
-                  $previewLi = $commentUl.find('li.comment-preview');
-              }
-              return $previewLi;
+            if($commentUl.find('.inline-comment-form').length) {
+                $('<li class="comment-wrapper"></li>').insertBefore($commentUl.find('.inline-comment-form'));
+            } else {
+                $commentUl.append($('<li class="comment-wrapper"></li>'));
             }
-            else {
-                // Just add a new one!
-                $commentUl.append('<li class="comment-wrapper"></li>');
-                return $commentUl.children('li:last');
+
+            // If not feedback increment comment count
+            if(parent_id) {
+                $commentCount = $parent.find('.open-comments-count');
+                
+                var commentCountNewValue = 1;
+                if($commentCount.html() != "") {
+                    commentCountNewValue = parseInt($commentCount.html(), 10)+1;
+                }
+                
+                $commentCount.html(commentCountNewValue);
+
+                if(commentCountNewValue > 1) {
+                    $parent.find('.open-comments-text').html('Comments');
+                } else {
+                    $parent.find('.open-comments-text').html('Comment');
+                }
+
             }
+
+            return $commentUl.children('li:last');
         }
         else {
             return $parent;
         }
-    }
-
-    function commentPreview(data)
-    {
-        var object_id = data['object_id'];
-        var parent_id = data['parent_id'];
-        var $comments = getCommentsDiv(object_id);
-
-        if(data['use_threadedcomments']) {
-            var $newCommentTarget = addCommentWrapper(data, true);
-            $previewarea = $newCommentTarget;
-        }
-        else {
-            // Allow to explicitly define in the HTML (for regular comments only)
-            var $previewarea = $comments.find(".comment-preview-area");
-
-            if( $previewarea.length == 0 ) {
-                // For regular comments, if previewarea is not explicitly added to the HTML,
-                // include a previewarea in the comments. This should at least give the same markup.
-                $comments.append('<div class="comment-preview-area"></div>').addClass('has-preview');
-                $previewarea = $comments.children(".comment-preview-area");
-                previewAutoAdded = true;
-            }
-        }
-
-        var had_preview = $previewarea.hasClass('has-preview-loaded');
-        $previewarea.html('<div class="comment-preview">' + data.html + '</div>').addClass('has-preview-loaded');
-        if( ! had_preview )
-            $previewarea.hide().show(600);
-
-        // Scroll to preview, but allow time to render it.
-        setTimeout(function(){ scrollToElement( $previewarea, 500, PREVIEW_SCROLL_TOP_OFFSET ); }, 500);
     }
 
     function commentFailure(data)
@@ -383,7 +344,6 @@
                 var $field = $(form.elements[field_name]);
 
                 // Twitter bootstrap style
-                $field.after('<span class="js-errors">' + data.errors[field_name] + '</span>');
                 $field.closest('.control-group').addClass('error');
             }
         }
@@ -391,7 +351,6 @@
 
     function removeErrors($form)
     {
-        $form.find('.js-errors').remove();
         $form.find('.control-group.error').removeClass('error');
     }
 
@@ -404,35 +363,10 @@
         return $comments;
     }
 
-    function removePreview(data)
-    {
-        var object_id = data['object_id'];
-        var $comments_list = $('#comments-' + object_id);
-
-        if(data['use_threadedcomments']) {
-            return removeThreadedPreview();
-        }
-        else {
-            var $previewarea = $comments_list.find(".comment-preview-area");
-            var had_preview = $previewarea.hasClass('has-preview-loaded');
-
-            if( previewAutoAdded )
-                $previewarea.remove();  // make sure it's added at the end again later.
-            else
-                $previewarea.html('');
-
-            // Update classes. allowing CSS to add/remove margins for example.
-            $previewarea.removeClass('has-preview-loaded');
-            $comments_list.removeClass('has-preview');
-
-            return had_preview;
-        }
-    }
-
     function removeWaitAnimation($form)
     {
-        // Remove the wait animation and message
-        $form.find('.comment-waiting').hide().stop();
+        // Remove the wait message
+        $form.find('.submit-form').text('submit');
     }
 
 })(window.jQuery);

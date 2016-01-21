@@ -1,8 +1,12 @@
 import warnings
+from django import template
 from django.core.exceptions import ImproperlyConfigured
 from django.utils.encoding import smart_str
 from fluent_comments import appsettings
+from threadedcomments.models import ThreadedComment
 from .compat import BASE_APP
+
+register = template.Library()
 
 try:
     from django.contrib.sites.shortcuts import get_current_site  # Django 1.9+
@@ -55,6 +59,18 @@ class FluentCommentsModerator(CommentModerator):
     akismet_check = appsettings.FLUENT_CONTENTS_USE_AKISMET and Akismet is not None
     akismet_check_action = appsettings.FLUENT_COMMENTS_AKISMET_ACTION
 
+    def user_can_comment(self, content_object, user):
+        if not user:
+            return False
+
+        if user.is_anonymous():
+            return False
+
+        if user.profile.is_member or content_object.owner.pk is user.pk:
+            return True
+
+        return False
+
     def allow(self, comment, content_object, request):
         """
         Determine whether a given comment is allowed to be posted on a given object.
@@ -65,10 +81,22 @@ class FluentCommentsModerator(CommentModerator):
         if not super(FluentCommentsModerator, self).allow(comment, content_object, request):
             return False
 
+        # User check
+        if not self.user_can_comment(content_object, comment.user):
+            return False
+
+        # Owner check (owner can comment but can't write feedback)
+        if not comment.parent_id and content_object.owner == request.user:
+            return False 
+
         # Akismet check
         if self.akismet_check and self.akismet_check_action == 'delete':
             if self._akismet_check(comment, content_object, request):
                 return False  # Akismet marked the comment as spam.
+
+        # Member can't write more than one Feedback
+        if ThreadedComment.objects.filter(user=request.user,object_pk=content_object.pk,parent__isnull=True).exists() and not comment.parent_id:
+            return False
 
         return True
 
@@ -185,8 +213,7 @@ def get_model_moderator(model):
     except KeyError:
         return None
 
-
-def comments_are_open(content_object):
+def comments_are_open(content_object, user):
     """
     Return whether comments are still open for a given target object.
     """
@@ -194,10 +221,13 @@ def comments_are_open(content_object):
     if moderator is None:
         return True
 
+    # Check if user can comment
+    if not FluentCommentsModerator.user_can_comment(moderator, content_object, user):
+        return False
+
     # Check the 'enable_field', 'auto_close_field' and 'close_after',
     # by reusing the basic Django policies.
     return CommentModerator.allow(moderator, None, content_object, None)
-
 
 def comments_are_moderated(content_object):
     """
