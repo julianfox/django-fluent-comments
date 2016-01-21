@@ -53,7 +53,6 @@ setup(
         'Django (>=1.5)',
     ],
     extras_require = {
-        ':python_version in "2.6,2.7"': ['akismet>=0.2',],
         'threadedcomments': ['django-threadedcomments>=1.0.1'],
     },
     description='A modern, ajax-based appearance for django_comments',
