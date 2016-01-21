@@ -1,6 +1,5 @@
-{% extends "comments/base.html" %}{% load i18n %}
-
-{% block title %}{% trans "Thanks for commenting" %}{% endblock %}
+{% extends "comments/base.html" %}
+{% block title %}Thanks for commenting{% endblock %}
 
 {% block extrahead %}
 {{ block.super }}
@@ -8,7 +7,7 @@
 {% endblock %}
 
 {% block content %}
-    <h2>{% trans "Thanks for posting your comment" %}</h2>
+    <h2>Thanks for posting your comment</h2>
     <p>
       {% blocktrans %}
       We have received your comment, and posted it on the web site.<br/>
@@ -21,5 +20,5 @@
     {% include "comments/comment.html" %}
     </div>
 
-  <p><a href="{{ comment.content_object.get_absolute_url }}#c{{ comment.id }}">{% trans "Back to the article" %}</a></p>
+  <p><a href="{{ comment.content_object.get_absolute_url }}#c{{ comment.id }}">Back to the article</a></p>
 {% endblock %}

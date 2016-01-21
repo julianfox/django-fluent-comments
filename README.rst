@@ -72,9 +72,9 @@ This template is empty by default since it's only serves as a placeholder.
 To complete the configuration of the comments module, create a ``comments/base.html`` file
 that maps the template blocks onto your website base template. For example::
 
-    {% extends "mysite/base.html" %}{% load i18n %}
+    {% extends "mysite/base.html" %}
 
-    {% block headtitle %}{% block title %}{% trans "Responses for page" %}{% endblock %}{% endblock %}
+    {% block headtitle %}{% block title %}Responses for page{% endblock %}{% endblock %}
 
     {% block main %}
         <div id="comments-wrapper">
