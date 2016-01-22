@@ -89,12 +89,10 @@ class FluentCommentsModerator(CommentModerator):
         if not comment.parent_id and content_object.owner == request.user:
             return False 
 
-        '''
         # Akismet check
         if self.akismet_check and self.akismet_check_action == 'delete':
             if self._akismet_check(comment, content_object, request):
                 return False  # Akismet marked the comment as spam.
-        '''
 
         # Member can't write more than one Feedback
         if ThreadedComment.objects.filter(user=request.user,object_pk=content_object.pk,parent__isnull=True).exists() and not comment.parent_id:
@@ -114,12 +112,10 @@ class FluentCommentsModerator(CommentModerator):
             return True
 
         # Akismet check
-        '''
         if self.akismet_check and self.akismet_check_action == 'moderate':
             # Return True if akismet marks this comment as spam and we want to moderate it.
             if self._akismet_check(comment, content_object, request):
                 return True
-        '''
 
         return False
 
